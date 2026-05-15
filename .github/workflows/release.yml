@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build and release plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin syntax
+        run: node --check KeywordTracker.plugin.js
+
+      - name: Extract plugin metadata
+        id: meta
+        run: |
+          set -e
+          VERSION=$(grep -oP '(?<=@version )\S+' KeywordTracker.plugin.js)
+          NAME=$(grep -oP '(?<=@name )\S+' KeywordTracker.plugin.js)
+          DESCRIPTION=$(grep -oP '(?<=@description ).+' KeywordTracker.plugin.js)
+          AUTHOR=$(grep -oP '(?<=@author ).+' KeywordTracker.plugin.js)
+          AUTHOR_ID=$(grep -oP '(?<=@authorId )\S+' KeywordTracker.plugin.js)
+          # Fail if any required field is empty
+          for FIELD in "$VERSION" "$NAME" "$DESCRIPTION" "$AUTHOR" "$AUTHOR_ID"; do
+            [ -n "$FIELD" ] || { echo "Error: a required metadata field is missing from the plugin header"; exit 1; }
+          done
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
+          echo "author=$AUTHOR" >> "$GITHUB_OUTPUT"
+          echo "author_id=$AUTHOR_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Generate config.json
+        run: |
+          jq -n \
+            --arg name "${{ steps.meta.outputs.name }}" \
+            --arg version "${{ steps.meta.outputs.version }}" \
+            --arg description "${{ steps.meta.outputs.description }}" \
+            --arg author "${{ steps.meta.outputs.author }}" \
+            --arg authorId "${{ steps.meta.outputs.author_id }}" \
+            '{name: $name, version: $version, description: $description, author: $author, authorId: $authorId}' \
+            > config.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.2.2
+        with:
+          name: "KeywordTracker v${{ steps.meta.outputs.version }}"
+          body: |
+            ## KeywordTracker v${{ steps.meta.outputs.version }}
+
+            ### Installation
+            1. Download `KeywordTracker.plugin.js` below.
+            2. Place it in your BetterDiscord plugins folder:
+               - **Windows:** `%APPDATA%\BetterDiscord\plugins\`
+               - **macOS/Linux:** `~/.config/BetterDiscord/plugins/`
+            3. Enable the plugin in BetterDiscord settings.
+          files: |
+            KeywordTracker.plugin.js
+            config.json
